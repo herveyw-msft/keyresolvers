@@ -27,27 +27,27 @@ using Microsoft.Azure.KeyVault.Cryptography.Algorithms;
 namespace KeyResolvers
 {
     /// <summary>
-    /// An RSA key.
+    /// An IKey implementation based on an X509Certificate.
     /// </summary>
-    public class CertificateKey : IKey, IDisposable
+    public class CertificateKey : IKey
     {
-
         private X509Certificate2 _certificate;
 
         /// <summary>
-        /// Key Identifier
+        /// Key Identifier, typically the thumprint of the certificate.
         /// </summary>
         public string Kid { get; private set; }
 
         /// <summary>
-        /// Constructor, creates a 2048 bit key with a GUID identifier.
+        /// Default constructor, preferred
         /// </summary>
-        public CertificateKey( X509Certificate2 certificate ) : this( certificate.Thumbprint, certificate )
+        public CertificateKey( X509Certificate2 certificate )
+            : this( certificate.Thumbprint, certificate )
         {
         }
 
         /// <summary>
-        /// Constructor.
+        /// Alternate constructor that allows for a specified key identifier.
         /// </summary>
         public CertificateKey( string kid, X509Certificate2 certificate )
         {
@@ -80,6 +80,7 @@ namespace KeyResolvers
             // Clean up managed resources if Dispose was called
             if ( disposing )
             {
+                if ( _certificate != null ) _certificate = null;
             }
 
             // Clean up native resources always
@@ -93,9 +94,10 @@ namespace KeyResolvers
             get
             {
                 if ( _certificate == null )
-                    throw new ObjectDisposedException( string.Format( CultureInfo.InvariantCulture, "RsaKey {0} is disposed", Kid ) );
+                    throw new ObjectDisposedException( string.Format( CultureInfo.InvariantCulture, "CertificateKey {0} is disposed", Kid ) );
 
-                return !_certificate.HasPrivateKey; }
+                return !_certificate.HasPrivateKey;
+            }
         }
 
         #region IKey implementation
@@ -114,8 +116,8 @@ namespace KeyResolvers
         {
             get { return Rs256.AlgorithmName; }
         }
-        
-// Warning 1998: This async method lacks 'await' operators and will run synchronously. Consider using the 'await' operator to await non-blocking API calls, or 'await Task.Run(...)' to do CPU-bound work on a background thread.
+
+        // Warning 1998: This async method lacks 'await' operators and will run synchronously. Consider using the 'await' operator to await non-blocking API calls, or 'await Task.Run(...)' to do CPU-bound work on a background thread.
 #pragma warning disable 1998
 
         public async Task<byte[]> DecryptAsync( byte[] ciphertext, byte[] iv, byte[] authenticationData = null, byte[] authenticationTag = null, string algorithm = RsaOaep.AlgorithmName, CancellationToken token = default(CancellationToken) )
@@ -126,9 +128,6 @@ namespace KeyResolvers
             if ( !_certificate.HasPrivateKey )
                 throw new NotSupportedException( "Certificate does not have a private key" );
 
-            if ( string.IsNullOrWhiteSpace( algorithm ) )
-                algorithm = DefaultEncryptionAlgorithm;
-
             if ( ciphertext == null || ciphertext.Length == 0 )
                 throw new ArgumentNullException( "ciphertext" );
 
@@ -137,6 +136,9 @@ namespace KeyResolvers
 
             if ( authenticationData != null )
                 throw new ArgumentException( "Authentication data must be null", "authenticationData" );
+
+            if ( string.IsNullOrWhiteSpace( algorithm ) )
+                algorithm = DefaultEncryptionAlgorithm;
 
             AsymmetricEncryptionAlgorithm algo = AlgorithmResolver.Default[algorithm] as AsymmetricEncryptionAlgorithm;
 
@@ -154,9 +156,6 @@ namespace KeyResolvers
             if ( _certificate == null )
                 throw new ObjectDisposedException( string.Format( "Certificate {0} is disposed", Kid ) );
 
-            if ( string.IsNullOrWhiteSpace( algorithm ) )
-                algorithm = DefaultEncryptionAlgorithm;
-
             if ( plaintext == null || plaintext.Length == 0 )
                 throw new ArgumentNullException( "plaintext" );
 
@@ -165,6 +164,9 @@ namespace KeyResolvers
 
             if ( authenticationData != null )
                 throw new ArgumentException( "Authentication data must be null", "authenticationData" );
+
+            if ( string.IsNullOrWhiteSpace( algorithm ) )
+                algorithm = DefaultEncryptionAlgorithm;
 
             AsymmetricEncryptionAlgorithm algo = AlgorithmResolver.Default[algorithm] as AsymmetricEncryptionAlgorithm;
 
@@ -180,13 +182,13 @@ namespace KeyResolvers
         public async Task<Tuple<byte[], string>> WrapKeyAsync( byte[] key, string algorithm = RsaOaep.AlgorithmName, CancellationToken token = default(CancellationToken) )
         {
             if ( _certificate == null )
-                throw new ObjectDisposedException( string.Format( "RsaKey {0} is disposed", Kid ) );
-
-            if ( string.IsNullOrWhiteSpace( algorithm ) )
-                algorithm = DefaultKeyWrapAlgorithm;
+                throw new ObjectDisposedException( string.Format( "Certificate {0} is disposed", Kid ) );
 
             if ( key == null || key.Length == 0 )
                 throw new ArgumentNullException( "key" );
+
+            if ( string.IsNullOrWhiteSpace( algorithm ) )
+                algorithm = DefaultKeyWrapAlgorithm;
 
             AsymmetricEncryptionAlgorithm algo = AlgorithmResolver.Default[algorithm] as AsymmetricEncryptionAlgorithm;
 
@@ -202,16 +204,16 @@ namespace KeyResolvers
         public async Task<byte[]> UnwrapKeyAsync( byte[] encryptedKey, string algorithm = RsaOaep.AlgorithmName, CancellationToken token = default(CancellationToken) )
         {
             if ( _certificate == null )
-                throw new ObjectDisposedException( string.Format( "RsaKey {0} is disposed", Kid ) );
+                throw new ObjectDisposedException( string.Format( "Certificate {0} is disposed", Kid ) );
 
             if ( !_certificate.HasPrivateKey )
                 throw new NotSupportedException( "Certificate does not have a private key" );
 
-            if ( string.IsNullOrWhiteSpace( algorithm ) )
-                algorithm = DefaultKeyWrapAlgorithm;
-
             if ( encryptedKey == null || encryptedKey.Length == 0 )
                 throw new ArgumentNullException( "wrappedKey" );
+
+            if ( string.IsNullOrWhiteSpace( algorithm ) )
+                algorithm = DefaultKeyWrapAlgorithm;
 
             AsymmetricEncryptionAlgorithm algo = AlgorithmResolver.Default[algorithm] as AsymmetricEncryptionAlgorithm;
 
@@ -224,19 +226,19 @@ namespace KeyResolvers
             }
         }
 
-        public async Task<Tuple<byte[], string>> SignAsync( byte[] digest, string algorithm, CancellationToken token = default(CancellationToken) )
+        public async Task<Tuple<byte[], string>> SignAsync( byte[] digest, string algorithm = null, CancellationToken token = default(CancellationToken) )
         {
             if ( _certificate == null )
-                throw new ObjectDisposedException( string.Format( "RsaKey {0} is disposed", Kid ) );
+                throw new ObjectDisposedException( string.Format( "Certificate {0} is disposed", Kid ) );
 
             if ( !_certificate.HasPrivateKey )
                 throw new NotSupportedException( "Certificate does not have a private key" );
 
-            if ( algorithm == null )
-                algorithm = DefaultSignatureAlgorithm;
-
             if ( digest == null )
                 throw new ArgumentNullException( "digest" );
+
+            if ( algorithm == null )
+                algorithm = DefaultSignatureAlgorithm;
 
             AsymmetricSignatureAlgorithm algo = AlgorithmResolver.Default[algorithm] as AsymmetricSignatureAlgorithm;
 
@@ -246,10 +248,10 @@ namespace KeyResolvers
             return new Tuple<byte[], string>( algo.SignHash( _certificate.PrivateKey, digest ), algorithm );
         }
 
-        public async Task<bool> VerifyAsync( byte[] digest, byte[] signature, string algorithm, CancellationToken token = default(CancellationToken) )
+        public async Task<bool> VerifyAsync( byte[] digest, byte[] signature, string algorithm = null, CancellationToken token = default(CancellationToken) )
         {
             if ( _certificate == null )
-                throw new ObjectDisposedException( string.Format( "RsaKey {0} is disposed", Kid ) );
+                throw new ObjectDisposedException( string.Format( "Certificate {0} is disposed", Kid ) );
 
             if ( digest == null )
                 throw new ArgumentNullException( "digest" );
